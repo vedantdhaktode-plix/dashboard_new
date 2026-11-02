@@ -3,6 +3,7 @@ import { getServerSession } from "@/lib/auth/session";
 import UnifiedDashboard from "@/components/UnifiedDashboard";
 import MasterAdminDashboard from "@/components/MasterAdminDashboard";
 import { getState } from "@/lib/store/unified-store";
+import { filterTasksForUser } from "@/lib/workflow/engine";
 
 export const dynamic = "force-dynamic";
 
@@ -17,10 +18,11 @@ export default async function Page() {
   }
 
   const state = await getState();
+  const allocatedTasks = filterTasksForUser(state.tasks || [], sessionUser);
 
   return (
     <UnifiedDashboard
-      initialTasks={state.tasks || []}
+      initialTasks={allocatedTasks}
       initialUsers={state.users || []}
       initialNotifications={state.notifications || []}
       sessionUser={sessionUser}

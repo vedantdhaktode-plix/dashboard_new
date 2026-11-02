@@ -9,6 +9,10 @@ export async function POST(request, context) {
     const { scriptOwnerId, editorId, brandOwnerId } = body;
     const sessionUser = await getServerSession();
 
+    if (!sessionUser) {
+      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+    }
+
     if (editorId !== undefined && sessionUser?.role !== "administrator" && !sessionUser?.isTeamLead) {
       return NextResponse.json({ error: "Only editing managers can assign editors" }, { status: 403 });
     }
@@ -20,6 +24,18 @@ export async function POST(request, context) {
       const current = tasks[index];
       const now = new Date().toISOString();
 
+      if (scriptOwnerId !== undefined) {
+        const canAssignWriter = ["content", "brand", "administrator", "master_admin"].includes(sessionUser.role);
+        if (!canAssignWriter) throw new Error("You cannot assign Content Team work");
+        if (sessionUser.role === "content" && current.scriptOwnerId !== sessionUser.id && current.contentOwnerId !== sessionUser.id) {
+          throw new Error("You can only reassign a task currently allocated to you");
+        }
+        const writer = scriptOwnerId ? users.find((user) => user.id === scriptOwnerId) : null;
+        if (scriptOwnerId && (!writer || writer.role !== "content")) {
+          throw new Error("Select a valid Content Team member");
+        }
+      }
+
       const updated = {
         ...current,
         updatedAt: now,
@@ -28,6 +44,16 @@ export async function POST(request, context) {
       if (scriptOwnerId !== undefined) {
         updated.scriptOwnerId = scriptOwnerId;
         updated.contentOwnerId = scriptOwnerId;
+        const writer = scriptOwnerId ? users.find((user) => user.id === scriptOwnerId) : null;
+        updated.activity = [
+          {
+            at: now,
+            actor: sessionUser.name,
+            team: "Content",
+            text: writer ? `Reassigned content work to ${writer.name}.` : "Removed the Content Team assignment.",
+          },
+          ...(updated.activity || []),
+        ];
       }
       if (editorId !== undefined) {
         const editor = editorId ? users.find((user) => user.id === editorId) : null;

@@ -1,18 +1,22 @@
 import { NextResponse } from "next/server";
 import { CreateBriefSchema } from "@/lib/workflow/contracts";
-import { filterTasksForTeam, initializeBrief } from "@/lib/workflow/engine";
+import { filterTasksForUser, initializeBrief } from "@/lib/workflow/engine";
 import { getState, mutateState } from "@/lib/store/unified-store";
+import { getServerSession } from "@/lib/auth/session";
 
 export async function GET(request) {
   try {
-    const { searchParams } = new URL(request.url);
-    const team = searchParams.get("team") || "administrator";
+    const sessionUser = await getServerSession();
+    if (!sessionUser) {
+      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+    }
 
     const state = await getState();
-    const visibleTasks = filterTasksForTeam(state.tasks, team);
+    const visibleTasks = filterTasksForUser(state.tasks, sessionUser);
 
     return NextResponse.json({
-      team,
+      team: sessionUser.role,
+      userId: sessionUser.id,
       tasks: visibleTasks,
       totalCount: visibleTasks.length,
       users: state.users,

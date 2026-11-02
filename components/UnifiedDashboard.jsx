@@ -6,7 +6,8 @@ import {
   Folder, FolderOpen, LayoutDashboard, List, LogOut, Menu, MessageSquareWarning,
   PlayCircle, Plus, Rocket, Search, Send, Smartphone, Sparkles, Video, X
 } from "lucide-react";
-import { CATEGORY_ROUTING, CONTENT_TYPES_BY_BRIEF, FALLBACK_VIDEO_EDITOR, TEAM_VISIBLE_STATES } from "@/lib/workflow/constants";
+import { CATEGORY_ROUTING, CONTENT_TYPES_BY_BRIEF, TEAM_VISIBLE_STATES } from "@/lib/workflow/constants";
+import { TEAM_USERS } from "@/lib/auth/users";
 import plixProductsCatalog from "@/data/plix-products.json";
 import { computePipelineMetrics, transitionTask } from "@/lib/workflow/engine";
 import {
@@ -38,10 +39,10 @@ const STATE = {
 // Isolated Kanban Columns - Each team dashboard ONLY exposes their permitted stages
 const ROLE_COLUMNS = {
   brand: [
-    ["draft", "Brand intake"],
-    ["script_approval_pending", "Script approval gate"],
-    ["approval_pending", "Video review gate"],
-    ["published", "Live campaigns"],
+    ["draft", "Brief draft"],
+    ["script_approval_pending", "Script review"],
+    ["approval_pending", "Video review"],
+    ["published", "Live"],
   ],
   content: [
     ["social_research", "Script queue"],
@@ -289,6 +290,181 @@ function VideoManagerConsole({
   );
 }
 
+function smoothChartPath(points) {
+  if (!points.length) return "";
+  return points.slice(1).reduce((path, point, index) => {
+    const previous = points[index];
+    const midpoint = (previous.x + point.x) / 2;
+    return `${path} C ${midpoint} ${previous.y}, ${midpoint} ${point.y}, ${point.x} ${point.y}`;
+  }, `M ${points[0].x} ${points[0].y}`);
+}
+
+function ManagerWorkloadChart({ tasks, editors, users }) {
+  const stages = [
+    { label: "Unassigned", value: tasks.filter((task) => task.state === "editing_queue" && !task.editorId).length },
+    { label: "Assigned", value: tasks.filter((task) => task.state === "editing_queue" && task.editorId).length },
+    { label: "Production", value: tasks.filter((task) => task.state === "editing_in_progress").length },
+    { label: "Rework", value: tasks.filter((task) => task.state === "changes_requested").length },
+    { label: "Brand review", value: tasks.filter((task) => task.state === "approval_pending").length },
+  ];
+  const managers = users.filter((user) => user.isTeamLead && ["edit", "video"].includes(user.role));
+  const maxValue = Math.max(4, ...stages.map((stage) => stage.value));
+  const chartTop = 45;
+  const chartBottom = 210;
+  const chartLeft = 58;
+  const chartRight = 682;
+  const points = stages.map((stage, index) => ({
+    ...stage,
+    x: chartLeft + (index * (chartRight - chartLeft)) / (stages.length - 1),
+    y: chartBottom - (stage.value / maxValue) * (chartBottom - chartTop),
+  }));
+  const linePath = smoothChartPath(points);
+  const areaPath = `${linePath} L ${chartRight} ${chartBottom} L ${chartLeft} ${chartBottom} Z`;
+  const busiestIndex = stages.reduce((highest, stage, index) => stage.value > stages[highest].value ? index : highest, 0);
+  const [selectedIndex, setSelectedIndex] = useState(busiestIndex);
+  const focusIndex = Math.min(selectedIndex, stages.length - 1);
+  const focus = points[focusIndex];
+  const gridValues = [maxValue, Math.round(maxValue * 0.66), Math.round(maxValue * 0.33), 0];
+
+  return (
+    <section className="manager-workload-card">
+      <div className="manager-chart-copy">
+        <span className="manager-chart-kicker">LIVE EDITING FLOW</span>
+        <h2>Team workload</h2>
+        <p>See where every approved script is sitting before assigning the next edit.</p>
+        <div className="manager-roster">
+          <div className="manager-avatar-stack">
+            {managers.map((manager) => <Avatar key={manager.id} person={manager} small />)}
+          </div>
+          <span>{managers.length} managers · {editors.length} editors</span>
+        </div>
+      </div>
+
+      <div className="manager-chart-visual">
+        <svg viewBox="0 0 720 260" role="img" aria-label="Editing workload across assignment stages">
+          <defs>
+            <linearGradient id="manager-area-gradient" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#5eead4" stopOpacity="0.72" />
+              <stop offset="65%" stopColor="#38bdf8" stopOpacity="0.22" />
+              <stop offset="100%" stopColor="#0f172a" stopOpacity="0" />
+            </linearGradient>
+            <linearGradient id="manager-line-gradient" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor="#69f4d5" />
+              <stop offset="100%" stopColor="#60a5fa" />
+            </linearGradient>
+            <filter id="manager-point-glow" x="-200%" y="-200%" width="400%" height="400%">
+              <feGaussianBlur stdDeviation="7" result="blur" />
+              <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+            </filter>
+          </defs>
+
+          {gridValues.map((value, index) => {
+            const y = chartTop + (index * (chartBottom - chartTop)) / (gridValues.length - 1);
+            return (
+              <g key={`${value}-${index}`}>
+                <line x1="52" x2="692" y1={y} y2={y} className="manager-chart-grid" />
+                <text x="8" y={y + 4} className="manager-chart-scale">{value}</text>
+              </g>
+            );
+          })}
+
+          <rect x={focus.x - 52} y="21" width="104" height="205" rx="15" className="manager-chart-focus" />
+          <path d={areaPath} fill="url(#manager-area-gradient)" />
+          <path d={linePath} fill="none" stroke="url(#manager-line-gradient)" strokeWidth="7" strokeLinecap="round" />
+
+          {points.map((point, index) => (
+            <g
+              key={point.label}
+              className="manager-chart-hit"
+              role="button"
+              tabIndex={0}
+              aria-label={`Show ${point.label}: ${point.value} items`}
+              onClick={() => setSelectedIndex(index)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") setSelectedIndex(index);
+              }}
+            >
+              <rect x={point.x - 55} y="28" width="110" height="220" fill="transparent" />
+              <circle cx={point.x} cy={point.y} r={index === focusIndex ? 9 : 5} className="manager-chart-point" filter={index === focusIndex ? "url(#manager-point-glow)" : undefined} />
+              <text x={point.x} y="244" textAnchor="middle" className="manager-chart-label">{point.label}</text>
+            </g>
+          ))}
+
+          <g className="manager-chart-tooltip" transform={`translate(${Math.min(610, Math.max(18, focus.x - 54))} 30)`}>
+            <rect width="108" height="61" rx="12" />
+            <text x="54" y="22" textAnchor="middle">{focus.label}</text>
+            <text x="54" y="48" textAnchor="middle" className="manager-chart-tooltip-value">{focus.value}</text>
+          </g>
+        </svg>
+      </div>
+    </section>
+  );
+}
+
+function EditingDispatchDesk({ tasks, editors, users, onOpen, onAssign }) {
+  const groups = [
+    { id: "unassigned", label: "Needs assignment", help: "Approved scripts waiting for a manager", items: tasks.filter((task) => task.state === "editing_queue" && !task.editorId) },
+    { id: "assigned", label: "Assigned", help: "Allocated to an editor, not started yet", items: tasks.filter((task) => task.state === "editing_queue" && task.editorId) },
+    { id: "production", label: "In production", help: "Active edits and requested rework", items: tasks.filter((task) => ["editing_in_progress", "changes_requested"].includes(task.state)) },
+    { id: "review", label: "With Brand", help: "Submitted cuts awaiting review", items: tasks.filter((task) => task.state === "approval_pending") },
+  ];
+
+  return (
+    <section className="dispatch-desk">
+      <ManagerWorkloadChart tasks={tasks} editors={editors} users={users} />
+      <div className="dispatch-summary">
+        <div><strong>{groups[0].items.length}</strong><span>Unassigned scripts</span></div>
+        <div><strong>{groups[1].items.length}</strong><span>Assigned, waiting to start</span></div>
+        <div><strong>{groups[2].items.length}</strong><span>Active edits</span></div>
+        <div><strong>{editors.length}</strong><span>Available editors</span></div>
+      </div>
+
+      <div className="dispatch-columns">
+        {groups.map((group) => (
+          <section className="dispatch-column" key={group.id}>
+            <header>
+              <div><strong>{group.label}</strong><span>{group.help}</span></div>
+              <b>{group.items.length}</b>
+            </header>
+            <div className="dispatch-items">
+              {group.items.map((task) => {
+                const editor = users.find((user) => user.id === task.editorId);
+                return (
+                  <article className="dispatch-card" key={task.id} onClick={() => onOpen(task)}>
+                    <div className="dispatch-card-top">
+                      <span className="task-id-tag">{task.id}</span>
+                      <Priority value={task.priority} />
+                    </div>
+                    <h3>{task.title}</h3>
+                    <p>{task.product} · {task.contentType}</p>
+                    {task.scriptLink ? (
+                      <a href={task.scriptLink} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>
+                        <FileText size={14} /> Open approved script <ExternalLink size={12} />
+                      </a>
+                    ) : <span className="missing-script">Script link unavailable</span>}
+                    <div className="dispatch-assignment">
+                      <label>Assigned editor</label>
+                      <EditorSelect task={task} editors={editors} onChange={onAssign} />
+                      {editor && (
+                        <small>
+                          <Avatar person={editor} small /> {editor.name}
+                          {task.editorAssignedByName ? ` · by ${task.editorAssignedByName}` : ""}
+                          {task.editorAssignedAt ? ` · ${formatDateTime(task.editorAssignedAt)}` : ""}
+                        </small>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
+              {!group.items.length && <div className="column-empty"><Check size={18} /><span>Nothing here</span></div>}
+            </div>
+          </section>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function TaskCard({ task, writers, users, onOpen, onAssign }) {
   const writer = users.find((person) => person.id === (task.scriptOwnerId || task.contentOwnerId));
   const currentStage = (task.stageDurations || []).slice(-1)[0];
@@ -366,21 +542,21 @@ function BrandFolderView({ tasks, onOpen, onCreateBrief, writers = [], users = [
   const folders = useMemo(() => [
     {
       id: "brief_drafts",
-      name: "Brand Brief Draft",
+      name: "Brief Draft",
       subtitle: "Draft briefs in preparation before release to production",
       states: ["draft"],
       color: "#0f8975",
     },
     {
       id: "script_approval",
-      name: "Script Approval Gate",
+      name: "Script Review",
       subtitle: "Content scripts submitted by writers awaiting your review & decision",
       states: ["script_approval_pending"],
       color: "#d97706",
     },
     {
       id: "video_approval",
-      name: "Video Review Gate",
+      name: "Video Review",
       subtitle: "Video cuts submitted by editors awaiting your review & decision",
       states: ["approval_pending"],
       color: "#4f46e5",
@@ -394,7 +570,7 @@ function BrandFolderView({ tasks, onOpen, onCreateBrief, writers = [], users = [
     },
     {
       id: "live_campaigns",
-      name: "Live Campaigns",
+      name: "Live",
       subtitle: "Approved creative live in market or ready for launch",
       states: ["ready_for_performance", "publishing_in_progress", "published"],
       color: "#16a34a",
@@ -668,7 +844,7 @@ function ScriptHandoffSection({ task, role, onSubmitScript, onSubmitVideo, onGoL
     return (
       <div className="script-form">
         <div style={{ background: "#f6f8f6", padding: "12px 14px", borderRadius: "4px", border: "1px solid #dfe3df", fontSize: "12px", color: "#4f5551", lineHeight: "1.5" }}>
-          This brief is currently saved in <strong>Brand Brief Draft</strong>. Once creative requirements are finalized, release it to Content Team queue to assign a script writer.
+          This brief is currently saved in <strong>Brief Draft</strong>. Once creative requirements are finalized, release it to Content Team queue to assign a script writer.
         </div>
         <div className="script-actions" style={{ marginTop: "12px" }}>
           <button
@@ -779,13 +955,53 @@ function ScriptHandoffSection({ task, role, onSubmitScript, onSubmitVideo, onGoL
   );
 }
 
+function DrawerAssetLink({ href, label, emptyLabel }) {
+  if (!href) {
+    return <p className="drawer-link-empty">{emptyLabel}</p>;
+  }
+
+  return (
+    <a className="drawer-asset-link" href={href} target="_blank" rel="noreferrer">
+      <span>
+        <strong>{label}</strong>
+        <small>{href}</small>
+      </span>
+      <ExternalLink size={16} />
+    </a>
+  );
+}
+
 function Drawer({ task, role, users, writers, editors, canAssignEditor, onClose, onAssign, onAssignEditor, onSubmitScript, onSubmitVideo, onGoLive, onBrandDecision, onReleaseDraftBrief }) {
   const [tab, setTab] = useState("overview");
   if (!task) return null;
+  const isContentView = role === "content";
+  const activeTab = isContentView ? "overview" : tab;
   const writer = users.find((person) => person.id === (task.scriptOwnerId || task.contentOwnerId));
   const editor = users.find((person) => person.id === task.editorId);
   const isVideoTask = ["editing_queue", "editing_in_progress", "changes_requested", "approval_pending"].includes(task.state);
+  const isVideoApprovalView = ["edit", "video"].includes(role) && task.state === "approval_pending";
   const metrics = computePipelineMetrics(task);
+
+  const referencesSection = (
+    <section className="detail-section">
+      <div className="section-title">
+        <h3>References & Links</h3>
+        <span className="eyebrow">{(task.references || []).length} attached</span>
+      </div>
+      <div className="references">
+        {(task.references || []).map((ref, index) =>
+          /^https:\/\//i.test(ref) ? (
+            <a href={ref} target="_blank" rel="noreferrer" key={`${ref}-${index}`}>
+              <ExternalLink size={14} />Open reference
+            </a>
+          ) : (
+            <span key={`${ref}-${index}`}><FileText size={14} />{ref}</span>
+          )
+        )}
+        {!(task.references || []).length && <span className="drawer-link-empty">No references or links attached.</span>}
+      </div>
+    </section>
+  );
 
   return (
     <>
@@ -801,39 +1017,74 @@ function Drawer({ task, role, users, writers, editors, canAssignEditor, onClose,
           <button className="close-button" onClick={onClose}><X /></button>
         </header>
         <nav className="drawer-tabs">
-          {["overview", "timing", "activity"].map((item) => (
-            <button className={tab === item ? "active" : ""} onClick={() => setTab(item)} key={item}>{item}</button>
+          {(isContentView ? ["overview"] : ["overview", "timing", "activity"]).map((item) => (
+            <button className={activeTab === item ? "active" : ""} onClick={() => setTab(item)} key={item}>{item}</button>
           ))}
         </nav>
         <div className="drawer-body">
-          {tab === "overview" && (
+          {activeTab === "overview" && (
             <>
-              <section className="detail-section">
-                <div className="section-title">
-                  <h3>Handoff Gate & Action</h3>
-                  <Status state={task.state} />
-                </div>
-                <ScriptHandoffSection
-                  task={task}
-                  role={role}
-                  onSubmitScript={onSubmitScript}
-                  onSubmitVideo={onSubmitVideo}
-                  onGoLive={onGoLive}
-                  onBrandDecision={onBrandDecision}
-                  onReleaseDraftBrief={onReleaseDraftBrief}
-                />
-              </section>
+              {isVideoApprovalView && (
+                <>
+                  <section className="detail-section video-approval-link-section">
+                    <div className="section-title">
+                      <h3>Video Link</h3>
+                      <Status state={task.state} />
+                    </div>
+                    <DrawerAssetLink
+                      href={task.videoLink}
+                      label="Open submitted video"
+                      emptyLabel="No video link has been submitted yet."
+                    />
+                  </section>
 
-              <section className="detail-section">
-                <div className="section-title">
-                  <h3>Requirements from Brand Team</h3>
-                  <BriefBadge task={task} />
-                </div>
-                <p className="summary">{task.summary || "No additional requirements were provided."}</p>
-                <div className="deliverables">
-                  {(task.deliverables || []).map((item) => <span key={item}><Check size={13} />{item}</span>)}
-                </div>
-              </section>
+                  <section className="detail-section video-approval-link-section">
+                    <div className="section-title">
+                      <h3>Content Team Script Link</h3>
+                    </div>
+                    <DrawerAssetLink
+                      href={task.scriptLink}
+                      label="Open approved script"
+                      emptyLabel="No Content Team script link is available."
+                    />
+                  </section>
+
+                  {referencesSection}
+                </>
+              )}
+
+              {!isVideoApprovalView && (
+                <section className="detail-section">
+                  <div className="section-title">
+                    <h3>{isContentView ? "Script Upload" : "Handoff Gate & Action"}</h3>
+                    <Status state={task.state} />
+                  </div>
+                  <ScriptHandoffSection
+                    task={task}
+                    role={role}
+                    onSubmitScript={onSubmitScript}
+                    onSubmitVideo={onSubmitVideo}
+                    onGoLive={onGoLive}
+                    onBrandDecision={onBrandDecision}
+                    onReleaseDraftBrief={onReleaseDraftBrief}
+                  />
+                </section>
+              )}
+
+              {isContentView && referencesSection}
+
+              {!isVideoApprovalView && (
+                <section className="detail-section">
+                  <div className="section-title">
+                    <h3>Requirements from Brand Team</h3>
+                    <BriefBadge task={task} />
+                  </div>
+                  <p className="summary">{task.summary || "No additional requirements were provided."}</p>
+                  <div className="deliverables">
+                    {(task.deliverables || []).map((item) => <span key={item}><Check size={13} />{item}</span>)}
+                  </div>
+                </section>
+              )}
 
               <section className="detail-section">
                 <div className="section-title">
@@ -857,10 +1108,6 @@ function Drawer({ task, role, users, writers, editors, canAssignEditor, onClose,
                     <Priority value={task.priority} />
                   </div>
                   <div>
-                    <label>Total Pipeline Lead Time</label>
-                    <span>{metrics.totalElapsedDays} Days</span>
-                  </div>
-                  <div>
                     <label>Source</label>
                     <span>{sourceSheet(task)}</span>
                   </div>
@@ -871,27 +1118,11 @@ function Drawer({ task, role, users, writers, editors, canAssignEditor, onClose,
                 </div>
               </section>
 
-              <section className="detail-section">
-                <div className="section-title">
-                  <h3>References</h3>
-                  <span className="eyebrow">{(task.references || []).length} attached</span>
-                </div>
-                <div className="references">
-                  {(task.references || []).map((ref, index) =>
-                    /^https:\/\//i.test(ref) ? (
-                      <a href={ref} target="_blank" rel="noreferrer" key={`${ref}-${index}`}>
-                        <ExternalLink size={14} />Open reference
-                      </a>
-                    ) : (
-                      <span key={`${ref}-${index}`}><FileText size={14} />{ref}</span>
-                    )
-                  )}
-                </div>
-              </section>
+              {!isVideoApprovalView && !isContentView && referencesSection}
             </>
           )}
 
-          {tab === "timing" && (
+          {activeTab === "timing" && (
             <section className="detail-section">
               <div className="section-title">
                 <h3>Stage Execution & Turnaround (TAT)</h3>
@@ -916,7 +1147,7 @@ function Drawer({ task, role, users, writers, editors, canAssignEditor, onClose,
             </section>
           )}
 
-          {tab === "activity" && (
+          {activeTab === "activity" && (
             <section className="detail-section">
               <div className="section-title"><h3>Activity History</h3></div>
               {(task.activity || []).map((item, index) => (
@@ -943,7 +1174,6 @@ function NewBriefModal({ onClose, onSubmit }) {
   const defaultCategory = plixProductsCatalog.products?.[0]?.category || "Nutra";
 
   const [formData, setFormData] = useState({
-    title: "",
     hookName: "",
     product: defaultProduct,
     category: defaultCategory,
@@ -955,6 +1185,8 @@ function NewBriefModal({ onClose, onSubmit }) {
   });
 
   const [productSearch, setProductSearch] = useState("");
+  const [manualProduct, setManualProduct] = useState("");
+  const [products, setProducts] = useState(() => plixProductsCatalog.products || []);
 
   const routing = CATEGORY_ROUTING[formData.category];
 
@@ -971,7 +1203,7 @@ function NewBriefModal({ onClose, onSubmit }) {
 
   // Sync category automatically when a product from the official catalog is selected
   const handleProductChange = (productName) => {
-    const found = plixProductsCatalog.products.find((p) => p.name === productName);
+    const found = products.find((p) => p.name === productName);
     setFormData((prev) => ({
       ...prev,
       product: productName,
@@ -979,29 +1211,43 @@ function NewBriefModal({ onClose, onSubmit }) {
     }));
   };
 
+  const handleAddProduct = () => {
+    const productName = manualProduct.trim();
+    if (!productName) return;
+
+    const existing = products.find((product) => product.name.toLowerCase() === productName.toLowerCase());
+    if (existing) {
+      handleProductChange(existing.name);
+    } else {
+      const newProduct = { name: productName, category: formData.category };
+      setProducts((current) => [...current, newProduct]);
+      setFormData((prev) => ({ ...prev, product: productName }));
+    }
+
+    setManualProduct("");
+    setProductSearch("");
+  };
+
   // Filter product catalog by search input
   const filteredProducts = useMemo(() => {
-    const list = plixProductsCatalog.products || [];
+    const list = products;
     if (!productSearch.trim()) return list;
     const q = productSearch.toLowerCase();
     return list.filter((p) => p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q));
-  }, [productSearch]);
+  }, [productSearch, products]);
 
   const handleAction = (asDraft = false) => {
-    if (!formData.title.trim()) {
-      alert("Please provide a Campaign Title");
+    const product = formData.product.trim();
+    if (!product) {
+      alert("Please select or add a Product");
       return;
     }
-    if (!formData.hookName.trim()) {
-      alert("Please provide a Hook Name");
-      return;
-    }
-    if (!formData.product.trim()) {
-      alert("Please select a Product");
-      return;
-    }
+    const hookName = formData.hookName.trim();
     onSubmit({
       ...formData,
+      title: hookName || product,
+      hookName,
+      product,
       asDraft,
       referenceUrls: formData.referenceUrl.trim() ? [formData.referenceUrl.trim()] : [],
     });
@@ -1028,22 +1274,10 @@ function NewBriefModal({ onClose, onSubmit }) {
           }}
         >
           <div className="modal-body">
-            {/* Campaign Title */}
-            <label className="form-group full-width">
-              <span>Campaign Title <b className="required">*</b></span>
-              <input
-                required
-                value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                placeholder="e.g. Barrier repair morning routine"
-              />
-            </label>
-
             {/* Hook Name */}
             <label className="form-group full-width">
-              <span>Hook Name <b className="required">*</b></span>
+              <span>Hook Name <small>(Optional)</small></span>
               <input
-                required
                 maxLength={200}
                 value={formData.hookName}
                 onChange={(e) => setFormData({ ...formData, hookName: e.target.value })}
@@ -1103,7 +1337,7 @@ function NewBriefModal({ onClose, onSubmit }) {
                   aria-label="Select a Plix product"
                 >
                   <option value="">Select a Plix product</option>
-                  {["Skin", "Hair", "Nutra"].map((cat) => {
+                  {["Skin", "Hair", "Nutra", "Joyun", "B2G2"].map((cat) => {
                     const matches = filteredProducts.filter((p) => p.category === cat);
                     if (!matches.length) return null;
                     return (
@@ -1119,6 +1353,28 @@ function NewBriefModal({ onClose, onSubmit }) {
                 </select>
               </div>
               <small>Selecting a product auto-syncs Category and assigns the responsible writer.</small>
+              <label className="manual-product-entry">
+                <span>Add a new product manually <small>(Optional)</small></span>
+                <div className="manual-product-controls">
+                  <input
+                    type="text"
+                    maxLength={200}
+                    value={manualProduct}
+                    onChange={(e) => setManualProduct(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleAddProduct();
+                      }
+                    }}
+                    placeholder="Enter a product not listed in the catalog"
+                  />
+                  <button type="button" className="button manual-product-submit" onClick={handleAddProduct} disabled={!manualProduct.trim()}>
+                    Submit
+                  </button>
+                </div>
+                <small>The product is added to the list immediately using the selected category below.</small>
+              </label>
             </div>
 
             {/* 2-Column Row: Category & Content Format */}
@@ -1169,13 +1425,13 @@ function NewBriefModal({ onClose, onSubmit }) {
               />
             </label>
 
-            {/* Creative Guidelines */}
+            {/* Additional Comments */}
             <label className="form-group full-width">
-              <span>Brand Requirements & Guidelines</span>
+              <span>Additional Comments</span>
               <textarea
                 value={formData.summary}
                 onChange={(e) => setFormData({ ...formData, summary: e.target.value })}
-                placeholder="Provide creative directions, mandatory angles, hooks, and dos & don'ts for Content Team..."
+                placeholder="Add any extra context, creative direction, or notes for the Content Team..."
               />
             </label>
           </div>
@@ -1206,19 +1462,24 @@ function NewBriefModal({ onClose, onSubmit }) {
 }
 
 export default function UnifiedDashboard({ initialTasks = [], initialUsers = [], initialNotifications = [], sessionUser = null }) {
-  const users = useMemo(() => dedupeUsers(initialUsers), [initialUsers]);
+  const users = useMemo(() => {
+    const authById = new Map(TEAM_USERS.map((user) => [user.id, user]));
+    const merged = initialUsers.map((user) => ({ ...user, ...(authById.get(user.id) || {}) }));
+    const stateIds = new Set(initialUsers.map((user) => user.id));
+    return dedupeUsers([...merged, ...TEAM_USERS.filter((user) => !stateIds.has(user.id))]);
+  }, [initialUsers]);
   const writers = users.filter((p) => p.role === "content");
 
   // User Identity & Role Authentication strictly bound to authenticated login session
   const currentUserId = sessionUser?.id || "usr-isha";
-  const currentUser = users.find((p) => p.id === currentUserId) || sessionUser || users[0];
+  const stateUser = users.find((p) => p.id === currentUserId);
+  const currentUser = stateUser || sessionUser ? { ...(stateUser || {}), ...(sessionUser || {}) } : users[0];
   const currentRole = currentUser?.role || "brand";
   const normalizedTeam = normalizeRole(currentRole);
   const isEditingManager = ["edit", "video"].includes(currentRole) && Boolean(currentUser?.isTeamLead);
   const editors = users.filter((person) =>
-    ["edit", "video"].includes(person.role) && !person.isTeamLead
+    ["edit", "video"].includes(person.role) && !person.isTeamLead && !person.isFallback
   );
-  const editingTeam = users.filter((person) => ["edit", "video"].includes(person.role));
 
   const handleSignOut = async () => {
     try {
@@ -1257,7 +1518,7 @@ export default function UnifiedDashboard({ initialTasks = [], initialUsers = [],
       eventSource = new EventSource("/api/events");
       eventSource.onmessage = async () => {
         try {
-          const res = await fetch("/api/tasks?team=administrator");
+          const res = await fetch("/api/tasks", { cache: "no-store" });
           if (res.ok) {
             const data = await res.json();
             if (Array.isArray(data.tasks)) {
@@ -1386,8 +1647,24 @@ export default function UnifiedDashboard({ initialTasks = [], initialUsers = [],
         : teamTasks.filter((task) => task.editorId === currentUserId);
     }
 
-    return teamTasks;
+    if (currentRole === "content") {
+      return teamTasks.filter((task) =>
+        task.scriptOwnerId === currentUserId || task.contentOwnerId === currentUserId
+      );
+    }
+
+    if (currentRole === "performance") {
+      return teamTasks.filter((task) => task.publisherId === currentUserId);
+    }
+
+    return [];
   }, [tasks, normalizedTeam, currentRole, currentUserId, currentUser?.isTeamLead]);
+
+  useEffect(() => {
+    if (selectedId && !roleTasks.some((task) => task.id === selectedId)) {
+      setSelectedId(null);
+    }
+  }, [roleTasks, selectedId]);
 
   // Toolbar Filter
   const filtered = useMemo(() => {
@@ -1471,7 +1748,7 @@ export default function UnifiedDashboard({ initialTasks = [], initialUsers = [],
       setModalOpen(false);
 
       if (asDraft) {
-        showToast("Brief saved to Brand Brief Draft folder");
+        showToast("Brief saved to Brief Draft folder");
       } else {
         showToast("New brief released to Content queue");
         const assignedWriter = users.find((u) => u.id === routing.writerId) || users.find((u) => u.role === "content");
@@ -1479,7 +1756,7 @@ export default function UnifiedDashboard({ initialTasks = [], initialUsers = [],
           targetTeam: "content",
           eventType: NOTIFICATION_EVENTS.BRIEF_RELEASED,
           title: "Brand Brief Released",
-          message: `Brief "${payload.title}" (${newTask.id}) released. Hook: "${payload.hookName}". Assigned to Content queue.`,
+          message: `Brief "${payload.title}" (${newTask.id}) released.${payload.hookName ? ` Hook: "${payload.hookName}".` : ""} Assigned to Content queue.`,
           task: newTask,
           recipientUser: assignedWriter,
         });
@@ -1697,7 +1974,7 @@ export default function UnifiedDashboard({ initialTasks = [], initialUsers = [],
           {(currentRole === "edit" || currentRole === "video") && (
             <button className="active">
               <Video size={20} />
-              <span>Video Team</span>
+              <span>{isEditingManager ? "Editing Dispatch" : "My Editing Queue"}</span>
             </button>
           )}
           {currentRole === "performance" && (
@@ -1888,7 +2165,7 @@ export default function UnifiedDashboard({ initialTasks = [], initialUsers = [],
               <h1>
                 {currentRole === "brand" ? "Brand Workspace" :
                  currentRole === "content" ? "Content Scripts" :
-                 currentRole === "edit" || currentRole === "video" ? "Video Production" :
+                 currentRole === "edit" || currentRole === "video" ? (isEditingManager ? "Editing Dispatch Desk" : "My Video Production") :
                  currentRole === "performance" ? "Performance Go-Live" :
                  "Operations Overview"}
               </h1>
@@ -1903,13 +2180,13 @@ export default function UnifiedDashboard({ initialTasks = [], initialUsers = [],
           </div>
 
           {/* Hero Grid */}
-          <div className="hero-grid">
+          {currentRole !== "content" && <div className="hero-grid">
             <section className="queue-card">
               <span className="eyebrow">{roleLabel(currentRole).toUpperCase()} OVERVIEW</span>
               <h2>
                 {currentRole === "brand" ? "Intake & Approval Gates" :
                  currentRole === "content" ? "Scripting Queue" :
-                 currentRole === "edit" || currentRole === "video" ? "Video Production Queue" :
+                 currentRole === "edit" || currentRole === "video" ? (isEditingManager ? "Shared Manager Assignment Queue" : "My Assigned Videos") :
                  "Go-Live & Campaigns"}
               </h2>
               <div className="queue-stats">
@@ -1942,10 +2219,10 @@ export default function UnifiedDashboard({ initialTasks = [], initialUsers = [],
                 <strong>{filtered.filter((t) => briefType(t) === "ai").length}</strong>
               </article>
             </div>
-          </div>
+          </div>}
 
           {/* Toolbar */}
-          {!isEditingManager && <section className="toolbar panel">
+          <section className="toolbar panel">
             <div className="queue-tabs">
               <button className={brief === "video" ? "active" : ""} onClick={() => setBrief("video")}>Video brief queue</button>
               <button className={brief === "ai" ? "active" : ""} onClick={() => setBrief("ai")}>AI brief queue</button>
@@ -1973,23 +2250,16 @@ export default function UnifiedDashboard({ initialTasks = [], initialUsers = [],
                 <button className={view === "board" ? "active" : ""} onClick={() => setView("board")}><LayoutDashboard size={18} />Board</button>
               </div>
             )}
-          </section>}
+          </section>
 
           {/* Brand Team: Folder Explorer / Other Teams (Video, Content, Perf, Admin): Kanban Board or List */}
           {isEditingManager ? (
-            <VideoManagerConsole
-              tasks={roleTasks}
+            <EditingDispatchDesk
+              tasks={filtered}
               editors={editors}
-              teamMembers={editingTeam}
+              users={users}
               onOpen={(task) => setSelectedId(task.id)}
               onAssign={assignEditor}
-              brief={brief}
-              onBriefChange={setBrief}
-              priority={priority}
-              onPriorityChange={setPriority}
-              status={status}
-              onStatusChange={setStatus}
-              search={search}
             />
           ) : isBrandTeam ? (
             <BrandFolderView

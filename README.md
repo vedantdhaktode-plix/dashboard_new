@@ -8,7 +8,7 @@ A complete, full-stack Next.js web application that unifies **Brand**, **Content
 
 1. **Total Team Abstraction**:
    * Each team operates in a focused queue with irrelevant upstream/downstream clutter removed.
-   * **Brand Team**: Brief intake, Hook configuration, Script approval gate, Video review gate, and campaign oversight.
+   * **Brand Team**: Brief intake, Hook configuration, Script review, Video review, and campaign oversight.
    * **Content Team**: Script queue, Category auto-routing (Skin $\rightarrow$ Himani, Hair $\rightarrow$ Zoha, Nutra $\rightarrow$ Tanmay), Google Docs script submissions.
    * **Video Team**: Receives Brand-approved brief and script, automatic fallback editor `Other`, Google Drive video cut submissions with aspect ratios (9:16, 16:9, 1:1).
    * **Performance Team**: `Ready for Live` queue of Brand-approved videos, UTM tagging, and Go-Live publishing execution.
