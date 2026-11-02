@@ -30,7 +30,7 @@ const STATE = {
   ready_for_performance: { label: "Ready for live", tone: "teal" },
   publishing_in_progress: { label: "Setup in progress", tone: "blue" },
   published: { label: "Live", tone: "green" },
-  publishing_failed: { label: "Failed / On hold", tone: "rose" },
+  publishing_failed: { label: "On Hold", tone: "rose" },
   on_hold: { label: "On hold", tone: "gray" },
   blocked: { label: "Blocked", tone: "rose" },
   cancelled: { label: "Cancelled", tone: "gray" },
@@ -63,9 +63,8 @@ const ROLE_COLUMNS = {
   ],
   performance: [
     ["ready_for_performance", "Ready for live"],
-    ["publishing_in_progress", "Setup in progress"],
     ["published", "Live"],
-    ["publishing_failed", "Failed / On hold"],
+    ["publishing_failed", "On Hold"],
   ],
   administrator: [
     ["draft", "Intake"],
@@ -274,7 +273,7 @@ function VideoManagerConsole({
               const assetLink = task.scriptLink || task.referenceUrl;
               const taskProgress = Math.max(0, Math.min(100, Number(task.progress) || 0));
               return <tr key={task.id} onClick={() => onOpen(task)}>
-                <td className="manager-brief-cell"><strong>{task.title || task.hookName || "Untitled brief"}</strong><span>{task.id} · {task.product} · {task.category}</span></td>
+                <td className="manager-brief-cell"><strong>{task.title || task.hookName || "Untitled brief"}</strong><span>{task.product} · {task.category}</span></td>
                 <td><span className={`manager-brief-type ${briefType(task)}`}>{briefType(task) === "ai" ? "AI brief" : "Video brief"}</span><small>{sourceSheet(task)}</small></td>
                 <td>{assetLink ? <a href={assetLink} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}><FileText size={14} /> Open script <ExternalLink size={12} /></a> : <span className="asset-missing">No link</span>}</td>
                 <td><EditorSelect task={task} editors={editors} onChange={onAssign} compact /></td>
@@ -432,7 +431,6 @@ function EditingDispatchDesk({ tasks, editors, users, onOpen, onAssign }) {
                 return (
                   <article className="dispatch-card" key={task.id} onClick={() => onOpen(task)}>
                     <div className="dispatch-card-top">
-                      <span className="task-id-tag">{task.id}</span>
                       <Priority value={task.priority} />
                     </div>
                     <h3>{task.title}</h3>
@@ -465,12 +463,8 @@ function EditingDispatchDesk({ tasks, editors, users, onOpen, onAssign }) {
   );
 }
 
-function TaskCard({ task, writers, users, onOpen, onAssign }) {
+function TaskCard({ task, role, writers, users, onOpen, onAssign }) {
   const writer = users.find((person) => person.id === (task.scriptOwnerId || task.contentOwnerId));
-  const currentStage = (task.stageDurations || []).slice(-1)[0];
-  const stageDuration = currentStage?.durationHours !== null && currentStage?.durationHours !== undefined
-    ? `${currentStage.durationHours}h`
-    : "Active";
 
   return (
     <button className="task-card" onClick={() => onOpen(task)}>
@@ -489,17 +483,13 @@ function TaskCard({ task, writers, users, onOpen, onAssign }) {
           <b>Assigned owner</b>
           <span className="owner"><Avatar person={writer} small />{writer?.name || "Unassigned"}</span>
         </span>
-        <OwnerSelect task={task} writers={writers} onChange={onAssign} compact />
-      </div>
-      <div className="task-card-foot">
-        <span>{task.id}</span>
-        <span>Stage TAT: <strong>{stageDuration}</strong></span>
+        {role === "content" && <OwnerSelect task={task} writers={writers} onChange={onAssign} compact />}
       </div>
     </button>
   );
 }
 
-function Board({ tasks, columns, writers, users, onOpen, onAssign }) {
+function Board({ tasks, role, columns, writers, users, onOpen, onAssign }) {
   return (
     <div className={`kanban ${columns.length === 3 ? "content-kanban" : ""}`}>
       {columns.map(([state, label]) => {
@@ -517,7 +507,7 @@ function Board({ tasks, columns, writers, users, onOpen, onAssign }) {
             </label>
             <div className="column-cards">
               {items.map((task) => (
-                <TaskCard key={task.id} task={task} writers={writers} users={users} onOpen={onOpen} onAssign={onAssign} />
+                <TaskCard key={task.id} task={task} role={role} writers={writers} users={users} onOpen={onOpen} onAssign={onAssign} />
               ))}
               {!items.length && (
                 <div className="column-empty">
@@ -738,6 +728,7 @@ function BrandFolderView({ tasks, onOpen, onCreateBrief, writers = [], users = [
           <TaskList
             tasks={folderTasks}
             writers={writers}
+            users={users}
             onOpen={onOpen}
             onAssign={onAssign}
           />
@@ -782,7 +773,7 @@ function BrandFolderView({ tasks, onOpen, onCreateBrief, writers = [], users = [
   );
 }
 
-function TaskList({ tasks, writers, onOpen, onAssign }) {
+function TaskList({ tasks, role, writers, users = [], onOpen, onAssign }) {
   return (
     <section className="task-list panel">
       <table>
@@ -793,28 +784,26 @@ function TaskList({ tasks, writers, onOpen, onAssign }) {
             <th>Owner</th>
             <th>Priority</th>
             <th>Content type</th>
-            <th>Stage TAT</th>
             <th>Status</th>
           </tr>
         </thead>
         <tbody>
           {tasks.map((task) => {
-            const currentStage = (task.stageDurations || []).slice(-1)[0];
-            const durationLabel = currentStage?.durationHours !== null && currentStage?.durationHours !== undefined
-              ? `${currentStage.durationHours}h`
-              : "Active";
-
+            const writer = users.find((person) => person.id === (task.scriptOwnerId || task.contentOwnerId));
             return (
               <tr key={task.id} onClick={() => onOpen(task)}>
                 <td>
                   <strong>{task.title}</strong>
-                  <span>{task.id} · {task.product} · Hook: <em>{task.hookName || "Not set"}</em></span>
+                  <span>{task.product} · Hook: <em>{task.hookName || "Not set"}</em></span>
                 </td>
                 <td><BriefBadge task={task} /><span className="source">{sourceSheet(task)}</span></td>
-                <td><OwnerSelect task={task} writers={writers} onChange={onAssign} compact /></td>
+                <td>
+                  {role === "content"
+                    ? <OwnerSelect task={task} writers={writers} onChange={onAssign} compact />
+                    : <span className="owner"><Avatar person={writer} small />{writer?.name || "Unassigned"}</span>}
+                </td>
                 <td><Priority value={task.priority} /></td>
                 <td>{task.contentType}</td>
-                <td><strong>{durationLabel}</strong></td>
                 <td><Status state={task.state} /></td>
               </tr>
             );
@@ -832,11 +821,10 @@ function TaskList({ tasks, writers, onOpen, onAssign }) {
   );
 }
 
-function ScriptHandoffSection({ task, role, onSubmitScript, onSubmitVideo, onGoLive, onBrandDecision, onReleaseDraftBrief }) {
+function ScriptHandoffSection({ task, role, onSubmitScript, onSubmitVideo, onGoLive, onHold, onBrandDecision, onReleaseDraftBrief }) {
   const [hookName, setHookName] = useState(task?.hookName || "");
   const [scriptUrl, setScriptUrl] = useState(task?.scriptLink || "");
   const [videoUrl, setVideoUrl] = useState(task?.videoLink || "");
-  const [liveUrl, setLiveUrl] = useState(task?.liveUrl || "");
   const [comment, setComment] = useState("");
 
   // Brand Draft Action Gate - release draft to Content queue
@@ -923,21 +911,41 @@ function ScriptHandoffSection({ task, role, onSubmitScript, onSubmitVideo, onGoL
   }
 
   // Performance Go Live - only Performance can launch campaigns
-  if (role === "performance" && ["ready_for_performance"].includes(task.state)) {
+  if (role === "performance" && ["ready_for_performance", "publishing_failed"].includes(task.state)) {
+    const isReadyForLive = task.state === "ready_for_performance";
     return (
-      <form className="script-form" onSubmit={(e) => { e.preventDefault(); onGoLive(task, liveUrl, comment); }}>
-        <label>
-          <span>Live Campaign URL</span>
-          <input type="url" required value={liveUrl} onChange={(e) => setLiveUrl(e.target.value)} placeholder="https://instagram.com/reel/... or https://..." />
-        </label>
-        <label>
-          <span>Publishing Notes</span>
-          <input value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Ad set ID, UTM campaign, budget..." />
-        </label>
-        <div className="script-actions">
-          <button className="button primary" type="submit"><Rocket size={15} />Record Go-Live</button>
+      <div className="script-form">
+        <div>
+          <span className="drawer-field-label">Video Link</span>
+          <DrawerAssetLink
+            href={task.videoLink}
+            label="Open approved video"
+            emptyLabel="No approved video link is available."
+          />
         </div>
-      </form>
+        <div>
+          <span className="drawer-field-label">Script Link</span>
+          <DrawerAssetLink
+            href={task.scriptLink}
+            label="Open approved script"
+            emptyLabel="No approved script link is available."
+          />
+        </div>
+        <div className="script-actions">
+          {isReadyForLive && (
+            <button className="button changes" type="button" onClick={() => onHold(task)}>
+              <MessageSquareWarning size={15} />On Hold
+            </button>
+          )}
+          <button
+            className="button primary"
+            type="button"
+            onClick={() => onGoLive(task)}
+          >
+            <Rocket size={15} />Go Live
+          </button>
+        </div>
+      </div>
     );
   }
 
@@ -971,11 +979,12 @@ function DrawerAssetLink({ href, label, emptyLabel }) {
   );
 }
 
-function Drawer({ task, role, users, writers, editors, canAssignEditor, onClose, onAssign, onAssignEditor, onSubmitScript, onSubmitVideo, onGoLive, onBrandDecision, onReleaseDraftBrief }) {
+function Drawer({ task, role, users, writers, editors, canAssignEditor, onClose, onAssign, onAssignEditor, onSubmitScript, onSubmitVideo, onGoLive, onHold, onBrandDecision, onReleaseDraftBrief }) {
   const [tab, setTab] = useState("overview");
   if (!task) return null;
   const isContentView = role === "content";
-  const activeTab = isContentView ? "overview" : tab;
+  const isPerformanceView = role === "performance";
+  const activeTab = isContentView || isPerformanceView ? "overview" : tab;
   const writer = users.find((person) => person.id === (task.scriptOwnerId || task.contentOwnerId));
   const editor = users.find((person) => person.id === task.editorId);
   const isVideoTask = ["editing_queue", "editing_in_progress", "changes_requested", "approval_pending"].includes(task.state);
@@ -1009,7 +1018,7 @@ function Drawer({ task, role, users, writers, editors, canAssignEditor, onClose,
       <aside className="drawer">
         <header className="drawer-head">
           <div>
-            <span className="eyebrow">{task.id} · {task.category}</span>
+            <span className="eyebrow">{task.category}</span>
             <TaskHeaderBadges task={task} />
             <h2>{task.title}</h2>
             <p>{task.product} · Hook: <strong>{task.hookName || "Not set"}</strong></p>
@@ -1017,7 +1026,7 @@ function Drawer({ task, role, users, writers, editors, canAssignEditor, onClose,
           <button className="close-button" onClick={onClose}><X /></button>
         </header>
         <nav className="drawer-tabs">
-          {(isContentView ? ["overview"] : ["overview", "timing", "activity"]).map((item) => (
+          {(isContentView || isPerformanceView ? ["overview"] : ["overview", "timing", "activity"]).map((item) => (
             <button className={activeTab === item ? "active" : ""} onClick={() => setTab(item)} key={item}>{item}</button>
           ))}
         </nav>
@@ -1056,7 +1065,7 @@ function Drawer({ task, role, users, writers, editors, canAssignEditor, onClose,
               {!isVideoApprovalView && (
                 <section className="detail-section">
                   <div className="section-title">
-                    <h3>{isContentView ? "Script Upload" : "Handoff Gate & Action"}</h3>
+                    <h3>{isContentView ? "Script Upload" : isPerformanceView ? "Output" : "Handoff Gate & Action"}</h3>
                     <Status state={task.state} />
                   </div>
                   <ScriptHandoffSection
@@ -1065,15 +1074,16 @@ function Drawer({ task, role, users, writers, editors, canAssignEditor, onClose,
                     onSubmitScript={onSubmitScript}
                     onSubmitVideo={onSubmitVideo}
                     onGoLive={onGoLive}
+                    onHold={onHold}
                     onBrandDecision={onBrandDecision}
                     onReleaseDraftBrief={onReleaseDraftBrief}
                   />
                 </section>
               )}
 
-              {isContentView && referencesSection}
+              {(isContentView || isPerformanceView) && referencesSection}
 
-              {!isVideoApprovalView && (
+              {!isVideoApprovalView && !isPerformanceView && (
                 <section className="detail-section">
                   <div className="section-title">
                     <h3>Requirements from Brand Team</h3>
@@ -1097,7 +1107,9 @@ function Drawer({ task, role, users, writers, editors, canAssignEditor, onClose,
                       ? (canAssignEditor
                         ? <EditorSelect task={task} editors={editors} onChange={onAssignEditor} />
                         : <span className="inline-owner"><Avatar person={editor} small />{editor?.name || "Unassigned"}</span>)
-                      : <OwnerSelect task={task} writers={writers} onChange={onAssign} />}
+                      : isContentView
+                        ? <OwnerSelect task={task} writers={writers} onChange={onAssign} />
+                        : <span className="inline-owner"><Avatar person={writer} small />{writer?.name || "Unassigned"}</span>}
                   </div>
                   <div>
                     <label>Current Owner</label>
@@ -1118,7 +1130,7 @@ function Drawer({ task, role, users, writers, editors, canAssignEditor, onClose,
                 </div>
               </section>
 
-              {!isVideoApprovalView && !isContentView && referencesSection}
+              {!isVideoApprovalView && !isContentView && !isPerformanceView && referencesSection}
             </>
           )}
 
@@ -1849,12 +1861,10 @@ export default function UnifiedDashboard({ initialTasks = [], initialUsers = [],
     }
   };
 
-  const handleGoLive = async (task, link, comments) => {
+  const handleGoLive = async (task) => {
     try {
       const res = await fetch(`/api/tasks/${task.id}/live`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ liveUrl: link, comment: comments }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to record go-live");
@@ -1874,6 +1884,19 @@ export default function UnifiedDashboard({ initialTasks = [], initialUsers = [],
       });
     } catch (err) {
       showToast(err.message || "Failed to push live");
+    }
+  };
+
+  const handleHold = async (task) => {
+    try {
+      const res = await fetch(`/api/tasks/${task.id}/hold`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to move task to On Hold");
+      setTasks((items) => items.map((item) => (item.id === task.id ? data.task : item)));
+      setSelectedId(null);
+      showToast("Task moved to On Hold");
+    } catch (err) {
+      showToast(err.message || "Failed to move task to On Hold");
     }
   };
 
@@ -2180,7 +2203,7 @@ export default function UnifiedDashboard({ initialTasks = [], initialUsers = [],
           </div>
 
           {/* Hero Grid */}
-          {currentRole !== "content" && <div className="hero-grid">
+          {currentRole !== "content" && currentRole !== "performance" && <div className="hero-grid">
             <section className="queue-card">
               <span className="eyebrow">{roleLabel(currentRole).toUpperCase()} OVERVIEW</span>
               <h2>
@@ -2273,6 +2296,7 @@ export default function UnifiedDashboard({ initialTasks = [], initialUsers = [],
           ) : view === "board" ? (
             <Board
               tasks={filtered}
+              role={currentRole}
               columns={columns}
               writers={writers}
               users={users}
@@ -2282,7 +2306,9 @@ export default function UnifiedDashboard({ initialTasks = [], initialUsers = [],
           ) : (
             <TaskList
               tasks={filtered}
+              role={currentRole}
               writers={writers}
+              users={users}
               onOpen={(t) => setSelectedId(t.id)}
               onAssign={assignWriter}
             />
@@ -2304,6 +2330,7 @@ export default function UnifiedDashboard({ initialTasks = [], initialUsers = [],
         onSubmitScript={handleSubmitScript}
         onSubmitVideo={handleSubmitVideo}
         onGoLive={handleGoLive}
+        onHold={handleHold}
         onBrandDecision={handleBrandDecision}
         onReleaseDraftBrief={handleReleaseDraftBrief}
       />

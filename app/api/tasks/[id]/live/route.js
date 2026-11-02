@@ -3,11 +3,10 @@ import { GoLiveSchema } from "@/lib/workflow/contracts";
 import { transitionTask } from "@/lib/workflow/engine";
 import { mutateState } from "@/lib/store/unified-store";
 
-export async function POST(request, context) {
+export async function POST(_request, context) {
   try {
     const { id } = await context.params;
-    const body = await request.json();
-    const parsed = GoLiveSchema.safeParse({ ...body, taskId: id });
+    const parsed = GoLiveSchema.safeParse({ taskId: id });
 
     if (!parsed.success) {
       return NextResponse.json(
@@ -25,22 +24,12 @@ export async function POST(request, context) {
         current,
         "published",
         "Performance Marketer",
-        `Campaign pushed LIVE: ${parsed.data.liveUrl}`
+        current.videoLink
+          ? `Campaign pushed LIVE with approved video: ${current.videoLink}`
+          : "Campaign pushed LIVE"
       );
 
-      updated.liveUrl = parsed.data.liveUrl;
-      updated.campaignId = parsed.data.campaignId;
       updated.publishedAt = new Date().toISOString();
-
-      // Add live link to deliverables/assets
-      updated.assets = updated.assets || [];
-      updated.assets.unshift({
-        id: `ast-live-${Date.now()}`,
-        type: "live_link",
-        label: "Live Ad Link",
-        url: parsed.data.liveUrl,
-        submittedAt: new Date().toISOString(),
-      });
 
       tasks[index] = updated;
       return updated;

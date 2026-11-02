@@ -15,7 +15,7 @@
     "published": { "label": "Live", "tone": "green" },
     "on_hold": { "label": "On hold", "tone": "neutral" },
     "blocked": { "label": "Blocked", "tone": "rose" },
-    "publishing_failed": { "label": "Failed / On hold", "tone": "rose" },
+    "publishing_failed": { "label": "On Hold", "tone": "rose" },
     "cancelled": { "label": "Cancelled", "tone": "neutral" },
     "closed_legacy": { "label": "Closed (legacy)", "tone": "neutral" }
   },
